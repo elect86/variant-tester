@@ -1,5 +1,8 @@
+import org.gradle.internal.component.model.DefaultVariantMetadata
+
 plugins {
-    java
+    `java-library`
+    `maven-publish`
 }
 
 group = "org.example"
@@ -7,72 +10,56 @@ version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
-    maven("../jogl-variant-publisher/plugin/repo")
+        maven("../jogl-variant-publisher/test/build/repo")
+//    maven("../jogl-variant-publisher/plugin/repo")
+    maven("https://jogamp.org/deployment/maven")
 }
-
-open class GluegenRule : ComponentMetadataRule {
-    data class NativeVariant(val os: String, val arch: String) {
-        val classifier = "$os-$arch"
-    }
-
-    private val nativeVariants = listOf(NativeVariant("android", "aarch64"),
-                                        NativeVariant("linux", "aarch64"),
-                                        NativeVariant("linux", "amd64"),
-                                        NativeVariant("linux", "armv6hf"),
-                                        NativeVariant("macosx", "universal"),
-                                        NativeVariant("windows", "amd64"))
-
-    override fun execute(context: ComponentMetadataContext) {
-        println(1)
-        println("execute(${context.details})")
-        val a = context.details.attributes.keySet().elementAt(0)
-        println("${a.name}, ${a.type}")
-        val pom = context.getDescriptor(PomModuleDescriptor::class)!!
-        println(pom.packaging)
-        context.details.withVariant("runtime") {
-            println(2)
-            attributes {
-                println(3)
-                attribute(Attribute.of("os", String::class.java), "none")
-                attribute(Attribute.of("arch", String::class.java), "none")
-            }
-//            withFiles {
-//                val file = "${context.details.id.name}-${context.details.id.version}-linux-amd64.jar"
-//                println("addFile($file)")
-//                addFile(file)
-//            }
-        }
-        for (variant in nativeVariants)
-            context.details.addVariant("${variant.classifier}-runtime", "runtime") {
-                attributes {
-                    attribute(Attribute.of("os", String::class.java), variant.os)
-                    attribute(Attribute.of("arch", String::class.java), variant.arch)
-                }
-//                this as VariantMetadataAdapter
-                val jar = "${context.details.id.name}-${context.details.id.version}-${variant.classifier}.jar"
-                println("variant ${variant.classifier}-runtime, $jar")
-                withFiles {
-                    addFile(jar)
-                }
-            }
+fun NamedDomainObjectProvider<Configuration>.linuxAmd64() = configure {
+    attributes {
+        attributes.attribute(OperatingSystemFamily.OPERATING_SYSTEM_ATTRIBUTE, objects.named("linux"))
+        attributes.attribute(MachineArchitecture.ARCHITECTURE_ATTRIBUTE, objects.named("amd64"))
     }
 }
-
-configurations.runtimeClasspath.get().attributes {
-    // select a platform, will fail to compose a runtime classpath if non is selected
-    attribute(Attribute.of("os", String::class.java), "linux")
-    attribute(Attribute.of("arch", String::class.java), "x86_64")
-}
+configurations.runtimeClasspath.linuxAmd64()
+configurations.testRuntimeClasspath.linuxAmd64()
 
 dependencies {
-    components { withModule<GluegenRule>("org.jogamp.gluegen:gluegen-rt") }
-    implementation("org.jogamp.gluegen:gluegen-rt:0.0.8")
+    implementation("org.scijava:gluegen-rt:2.5.0")
+    implementation("org.scijava:jogl-all:2.5.0")
+    //    runtimeOnly("org.scijava:gluegen-rt:2.5.0:linux-amd64")
+    //    runtimeOnly("org.scijava:jogl-all:2.5.0:linux-amd64")
+    //    implementation("org.jogamp.gluegen:gluegen-rt:2.5.0")
+    //    implementation("org.jogamp.jogl:jogl-all:2.5.0")
+    //    runtimeOnly("org.jogamp.gluegen:gluegen-rt:2.5.0:natives-linux-amd64")
+    //    runtimeOnly("org.jogamp.jogl:jogl-all:2.5.0:natives-linux-amd64")
 
-    testImplementation(platform("org.junit:junit-bom:5.10.0"))
-    testImplementation("org.junit.jupiter:junit-jupiter")
+//    testImplementation(platform("org.junit:junit-bom:5.10.0"))
+//    testImplementation("org.junit.jupiter:junit-jupiter")
 }
 
-tasks.test {
-    useJUnitPlatform()
+tasks {
+    withType<Test> { logging.captureStandardOutput(LogLevel.INFO) }
+    test { useJUnitPlatform() }
+
+    register("checkClasspath") {
+        doLast {
+            println("=== COMPILE ===")
+            configurations.compileClasspath.get().forEach { println(it.name) }
+            println("=== RUNTIME ===")
+            configurations.runtimeClasspath.get().forEach { println(it.name) }
+        }
+    }
 }
 
+publishing {
+    publications.create<MavenPublication>("maven") {
+        from(components["java"])
+        groupId = "group"
+        artifactId = "artifact"
+        version = "1.0"
+    }
+    repositories.maven {
+        name = "repo"
+        url = uri("$projectDir/$name")
+    }
+}
